@@ -13,39 +13,75 @@ app.use((req, res, next) => {
 });
 
 // 🧩 Your Roblox Place ID
-const PLACE_ID = "108529743514202"; // Replace this with your actual Roblox place ID
+const PLACE_ID = "108529743514202"; // Replace this with your actual place ID
+
+// 🧠 Simple in-memory cache (1 minute)
+let cachedServers = null;
+let lastFetchTime = 0;
+const CACHE_DURATION_MS = 60 * 1000; // 60 seconds
 
 // ✅ Health check route
 app.get("/", (req, res) => {
   res.send("✅ Roblox Server Proxy is running!");
 });
 
-// ✅ Public server list route (with better validation + fallback)
+// ✅ Public servers endpoint (with caching)
 app.get("/servers", async (req, res) => {
+  const now = Date.now();
+
+  // 🧠 Return cached data if it’s fresh
+  if (cachedServers && now - lastFetchTime < CACHE_DURATION_MS) {
+    return res.json({
+      ...cachedServers,
+      cached: true,
+      message: "Serving cached data to avoid rate limit.",
+    });
+  }
+
   try {
-    const response = await fetch(
-      `https://games.roblox.com/v1/games/${PLACE_ID}/servers/Public?sortOrder=Desc&limit=100`
-    );
+    const url = `https://games.roblox.com/v1/games/${PLACE_ID}/servers/Public?sortOrder=Desc&limit=100`;
+    const response = await fetch(url);
+
+    // ⚠️ Handle Roblox rate-limiting
+    if (response.status === 429) {
+      console.warn("⚠️ Roblox API rate-limited this IP.");
+      if (cachedServers) {
+        return res.json({
+          ...cachedServers,
+          cached: true,
+          message: "Rate limited — serving cached data.",
+        });
+      } else {
+        return res
+          .status(429)
+          .json({ error: "Rate limited by Roblox. Try again later." });
+      }
+    }
 
     if (!response.ok) {
       console.error("⚠️ Roblox API returned status:", response.status);
-      return res.status(response.status).json({
-        error: `Roblox API responded with ${response.status}`,
-      });
+      return res
+        .status(response.status)
+        .json({ error: `Roblox API responded with ${response.status}` });
     }
 
     const data = await response.json();
 
-    // ✅ If Roblox returned proper data
+    // ✅ Validate data and store in cache
     if (data && Array.isArray(data.data)) {
-      return res.json({ data: data.data });
+      cachedServers = data;
+      lastFetchTime = now;
+      return res.json({
+        ...data,
+        cached: false,
+        message: "Fetched fresh data from Roblox.",
+      });
     }
 
-    // ⚠️ If Roblox API changed or is missing data
     console.warn("⚠️ Unexpected Roblox data format:", data);
     return res.json({
       data: [],
-      message: "No active servers found or data incomplete.",
+      message: "No active servers found or unexpected data format.",
     });
   } catch (err) {
     console.error("❌ Error fetching Roblox servers:", err);
