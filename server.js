@@ -5,7 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ⚠️ REPLACE THIS WITH YOUR REAL PLACE ID
-const PLACE_ID = "YOUR_PLACE_ID_HERE";
+const PLACE_ID = "108529743514202";
 
 // 🧩 Optional secret key protection
 const SECRET_KEY = process.env.SECRET_KEY || "none";
