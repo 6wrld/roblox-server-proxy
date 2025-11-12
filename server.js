@@ -16,25 +16,25 @@ app.use((req, res, next) => {
 const PLACE_ID = "108529743514202"; // Replace this with your actual place ID
 
 // 🧠 Simple in-memory cache (1 minute)
-let cachedServers = null;
+let cachedServers = { data: [], message: "No data cached yet." };
 let lastFetchTime = 0;
 const CACHE_DURATION_MS = 60 * 1000; // 60 seconds
 
-// ✅ Health check route
+// ✅ Health check
 app.get("/", (req, res) => {
   res.send("✅ Roblox Server Proxy is running!");
 });
 
-// ✅ Public servers endpoint (with caching)
+// ✅ Public servers endpoint
 app.get("/servers", async (req, res) => {
   const now = Date.now();
 
-  // 🧠 Return cached data if it’s fresh
+  // 🧠 Serve cached data if fresh
   if (cachedServers && now - lastFetchTime < CACHE_DURATION_MS) {
     return res.json({
       ...cachedServers,
       cached: true,
-      message: "Serving cached data to avoid rate limit.",
+      message: "Serving cached data (fresh).",
     });
   }
 
@@ -44,18 +44,12 @@ app.get("/servers", async (req, res) => {
 
     // ⚠️ Handle Roblox rate-limiting
     if (response.status === 429) {
-      console.warn("⚠️ Roblox API rate-limited this IP.");
-      if (cachedServers) {
-        return res.json({
-          ...cachedServers,
-          cached: true,
-          message: "Rate limited — serving cached data.",
-        });
-      } else {
-        return res
-          .status(429)
-          .json({ error: "Rate limited by Roblox. Try again later." });
-      }
+      console.warn("⚠️ Roblox API rate-limited us. Returning cache.");
+      return res.json({
+        ...cachedServers,
+        cached: true,
+        message: "Rate limited by Roblox — serving last known data.",
+      });
     }
 
     if (!response.ok) {
@@ -67,7 +61,6 @@ app.get("/servers", async (req, res) => {
 
     const data = await response.json();
 
-    // ✅ Validate data and store in cache
     if (data && Array.isArray(data.data)) {
       cachedServers = data;
       lastFetchTime = now;
@@ -80,14 +73,16 @@ app.get("/servers", async (req, res) => {
 
     console.warn("⚠️ Unexpected Roblox data format:", data);
     return res.json({
-      data: [],
-      message: "No active servers found or unexpected data format.",
+      ...cachedServers,
+      cached: true,
+      message: "Unexpected data — serving cached servers instead.",
     });
   } catch (err) {
     console.error("❌ Error fetching Roblox servers:", err);
-    return res.status(500).json({
-      error: "Failed to fetch servers from Roblox.",
-      details: err.message,
+    return res.json({
+      ...cachedServers,
+      cached: true,
+      message: "Error fetching Roblox servers — using cached data.",
     });
   }
 });
